@@ -1,0 +1,155 @@
+import numpy as np
+import re
+import os
+import joblib
+from nltk.sentiment import SentimentIntensityAnalyzer
+from typing import Dict, Any
+
+# Adjust paths to point back to the src directory where the models live
+# Assuming the backend will be run from the backend/ directory or root directory.
+MODEL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'models'))
+
+# Load models safely
+try:
+    model = joblib.load(os.path.join(MODEL_DIR, "calibrated_model.pkl"))
+    vectorizer = joblib.load(os.path.join(MODEL_DIR, "tfidf_vectorizer.pkl"))
+    explain_model = joblib.load(os.path.join(MODEL_DIR, "explain_model.pkl"))
+except FileNotFoundError as e:
+    print(f"Warning: Models not found in {MODEL_DIR}. Please run training script. Error: {e}")
+    model, vectorizer, explain_model = None, None, None
+
+def clean_text(text: str) -> str:
+    if not isinstance(text, str):
+        text = str(text)
+    text = text.lower()
+    text = re.sub(r'[^a-zA-Z\s]', '', text)
+    return text
+
+def behavioral_score(review: str):
+    cleaned = clean_text(review)
+    words = cleaned.split()
+    if not words:
+        return 0, []
+        
+    unique_words = set(words)
+    repetition_ratio = len(words) / (len(unique_words) + 1)
+    
+    strong_words = ["amazing", "best", "excellent", "perfect", "must", "love", "hate", "worst", "terrible", "awful"]
+    emotion_count = sum(1 for w in words if w in strong_words)
+    
+    detail_score = len(words)
+    sentences = re.split(r'[.!?]+', review)
+    sentence_count = len([s for s in sentences if s.strip()])
+    
+    # Try NLTK for sentiment (mixed sentiment logic)
+    try:
+        sia = SentimentIntensityAnalyzer()
+        sentiment = sia.polarity_scores(review)
+        compound = sentiment['compound']
+        mixed_sentiment = abs(compound) < 0.5 and (sentiment['pos'] > 0.1 and sentiment['neg'] > 0.1)
+    except Exception:
+        mixed_sentiment = False
+    
+    domain_words = ["hotel", "room", "service", "food", "staff", "location", "price", "clean", "comfortable", "bed", "bathroom", "breakfast", "stay"]
+    domain_count = sum(1 for w in words if w in domain_words)
+    
+    score = 0
+    reasoning = []
+    
+    # Negative checks
+    penalty_count = 0
+    if repetition_ratio > 1.5:
+        penalty_count += 1
+        reasoning.append("High repetition detected, which is unusual for authentic reviews.")
+    if emotion_count > 2:
+        penalty_count += 1
+        reasoning.append("Excessive use of strong emotive words, potentially indicating bias or astroturfing.")
+    if detail_score < 10:
+        penalty_count += 1
+        reasoning.append("Low detail profile; the review lacks descriptive substance.")
+        
+    if penalty_count >= 2:
+        score -= 20
+        reasoning.insert(0, "Multiple suspicious behavioral patterns triggered a severe penalty.")
+    
+    # Positive checks
+    if mixed_sentiment:
+        score += 10
+        reasoning.append("Review contains mixed sentiment, characteristic of nuanced authentic opinions.")
+    if domain_count > 1:
+        score += 5
+        reasoning.append("Appropriate use of contextual domain-specific vocabulary.")
+    if sentence_count > 2:
+        score += 5
+        reasoning.append("Multi-sentence structure provides solid foundational context.")
+        
+    return score, reasoning
+
+def analyze_review(review: str) -> Dict[str, Any]:
+    if not model or not vectorizer or not explain_model:
+        raise ValueError("ML models were not loaded properly. Ensure train_model.py has run successfully.")
+        
+    cleaned = clean_text(review)
+    vectorized = vectorizer.transform([cleaned])
+    prob = float(model.predict_proba(vectorized)[0][1])
+    
+    # Compute scores
+    base = (1 - prob) * 100
+    behavior_adj, reasoning = behavioral_score(review)
+    final_score = float(max(0, min(100, base + behavior_adj)))
+    
+    confidence_dist = abs(prob - 0.5)
+    if confidence_dist > 0.35:
+        confidence = "High"
+    elif confidence_dist > 0.15:
+        confidence = "Medium"
+    else:
+        confidence = "Low"
+    
+    # Thresholding for final label
+    if prob < 0.4:
+        status_base = "Genuine"
+    elif prob > 0.85:
+        status_base = "Suspicious"
+    else:
+        status_base = "Uncertain"
+        
+    if status_base == "Genuine":
+        if final_score >= 80:
+            status = "Verified Authentic"
+        else:
+            status = "Likely Authentic"
+    elif status_base == "Suspicious":
+        if final_score <= 20:
+            status = "Highly Suspicious"
+        else:
+            status = "Potential Anomalies Detected"
+    else:
+        status = "Requires Manual Verification"
+
+    # Explainability Features
+    feature_names = vectorizer.get_feature_names_out()
+    coefs = explain_model.coef_[0]
+    
+    words = []
+    # Identify nonzero entries in the sparse matrix for the document
+    for i in vectorized.nonzero()[1]:
+        tfidf_val = vectorized[0, i]
+        contribution = coefs[i] * tfidf_val
+        words.append({
+            "word": str(feature_names[i]),
+            "contribution": float(round(contribution, 4)),
+            "tfidf": float(round(tfidf_val, 4))
+        })
+    
+    # Pull top 5 influential words based on absolute contribution
+    top_words = sorted(words, key=lambda x: abs(x["contribution"]), reverse=True)[:5]
+
+    return {
+        "score": round(final_score, 2),
+        "status": status,
+        "confidence": confidence,
+        "behavior_adjustment": behavior_adj,
+        "top_words": top_words,
+        "reasoning": reasoning
+    }
