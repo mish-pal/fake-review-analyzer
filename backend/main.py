@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 import uvicorn
 from contextlib import asynccontextmanager
 
-from backend.ml_engine import analyze_review
+from backend.ml_engine import analyze_review, analyze_batch
 from backend.database import init_db, add_review, setup_vote, get_recent_reviews
 
 @asynccontextmanager
@@ -45,6 +45,18 @@ class ReviewItem(BaseModel):
     created_at: str
     final_score: float
 
+class BatchRequest(BaseModel):
+    reviews: List[str]
+
+class BatchItemResponse(BaseModel):
+    text: str
+    score: float
+    status: str
+
+class BatchResponse(BaseModel):
+    results: List[BatchItemResponse]
+    metrics: Dict[str, Any]
+
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_endpoint(req: ReviewRequest):
     if not req.review.strip():
@@ -59,6 +71,19 @@ async def analyze_endpoint(req: ReviewRequest):
         # Append id directly returning identical schema matching AnalysisResponse
         result['review_id'] = review_id
         
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=500, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+@app.post("/analyze_batch", response_model=BatchResponse)
+async def analyze_batch_endpoint(req: BatchRequest):
+    if not req.reviews:
+        raise HTTPException(status_code=400, detail="Reviews list cannot be empty.")
+    
+    try:
+        result = analyze_batch(req.reviews)
         return result
     except ValueError as ve:
         raise HTTPException(status_code=500, detail=str(ve))

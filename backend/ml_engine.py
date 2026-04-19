@@ -3,20 +3,19 @@ import re
 import os
 import joblib
 from nltk.sentiment import SentimentIntensityAnalyzer
-from typing import Dict, Any
+from typing import Dict, Any, List
 
-# Adjust paths to point back to the src directory where the models live
-# Assuming the backend will be run from the backend/ directory or root directory.
 MODEL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'models'))
 
-# Load models safely
 try:
     model = joblib.load(os.path.join(MODEL_DIR, "calibrated_model.pkl"))
     vectorizer = joblib.load(os.path.join(MODEL_DIR, "tfidf_vectorizer.pkl"))
     explain_model = joblib.load(os.path.join(MODEL_DIR, "explain_model.pkl"))
-except FileNotFoundError as e:
+except Exception as e:
     print(f"Warning: Models not found in {MODEL_DIR}. Please run training script. Error: {e}")
-    model, vectorizer, explain_model = None, None, None
+    model = None
+    vectorizer = None
+    explain_model = None
 
 def clean_text(text: str) -> str:
     if not isinstance(text, str):
@@ -41,7 +40,6 @@ def behavioral_score(review: str):
     sentences = re.split(r'[.!?]+', review)
     sentence_count = len([s for s in sentences if s.strip()])
     
-    # Try NLTK for sentiment (mixed sentiment logic)
     try:
         sia = SentimentIntensityAnalyzer()
         sentiment = sia.polarity_scores(review)
@@ -56,7 +54,6 @@ def behavioral_score(review: str):
     score = 0
     reasoning = []
     
-    # Negative checks
     penalty_count = 0
     if repetition_ratio > 1.5:
         penalty_count += 1
@@ -72,7 +69,6 @@ def behavioral_score(review: str):
         score -= 20
         reasoning.insert(0, "Multiple suspicious behavioral patterns triggered a severe penalty.")
     
-    # Positive checks
     if mixed_sentiment:
         score += 10
         reasoning.append("Review contains mixed sentiment, characteristic of nuanced authentic opinions.")
@@ -87,13 +83,12 @@ def behavioral_score(review: str):
 
 def analyze_review(review: str) -> Dict[str, Any]:
     if not model or not vectorizer or not explain_model:
-        raise ValueError("ML models were not loaded properly. Ensure train_model.py has run successfully.")
+        raise ValueError("ML models were not loaded properly.")
         
     cleaned = clean_text(review)
     vectorized = vectorizer.transform([cleaned])
     prob = float(model.predict_proba(vectorized)[0][1])
     
-    # Compute scores
     base = (1 - prob) * 100
     behavior_adj, reasoning = behavioral_score(review)
     final_score = float(max(0, min(100, base + behavior_adj)))
@@ -106,7 +101,6 @@ def analyze_review(review: str) -> Dict[str, Any]:
     else:
         confidence = "Low"
     
-    # Thresholding for final label
     if prob < 0.4:
         status_base = "Genuine"
     elif prob > 0.85:
@@ -127,12 +121,11 @@ def analyze_review(review: str) -> Dict[str, Any]:
     else:
         status = "Requires Manual Verification"
 
-    # Explainability Features
+    # XAI Extraction
     feature_names = vectorizer.get_feature_names_out()
     coefs = explain_model.coef_[0]
     
     words = []
-    # Identify nonzero entries in the sparse matrix for the document
     for i in vectorized.nonzero()[1]:
         tfidf_val = vectorized[0, i]
         contribution = coefs[i] * tfidf_val
@@ -142,7 +135,6 @@ def analyze_review(review: str) -> Dict[str, Any]:
             "tfidf": float(round(tfidf_val, 4))
         })
     
-    # Pull top 5 influential words based on absolute contribution
     top_words = sorted(words, key=lambda x: abs(x["contribution"]), reverse=True)[:5]
 
     return {
@@ -153,3 +145,46 @@ def analyze_review(review: str) -> Dict[str, Any]:
         "top_words": top_words,
         "reasoning": reasoning
     }
+
+def analyze_batch(reviews: List[str]) -> Dict[str, Any]:
+    if not reviews:
+        return {"results": [], "metrics": {}}
+        
+    if not model or not vectorizer:
+        raise ValueError("ML models not loaded.")
+
+    cleaned_texts = [clean_text(r) for r in reviews]
+    vectors = vectorizer.transform(cleaned_texts)
+    probs = model.predict_proba(vectors)[:, 1]
+    
+    results = []
+    auth_count = 0
+    susp_count = 0
+    total_score = 0
+    
+    for i, review in enumerate(reviews):
+        # We can run basic behavior score over each
+        behavior_adj, _ = behavioral_score(review)
+        base = (1 - probs[i]) * 100
+        final_score = float(max(0, min(100, base + behavior_adj)))
+        
+        status = "Authentic" if final_score >= 50 else "Suspicious"
+        if status == "Authentic": auth_count += 1
+        else: susp_count += 1
+        
+        total_score += final_score
+        
+        results.append({
+            "text": review,
+            "score": round(final_score, 2),
+            "status": status
+        })
+        
+    metrics = {
+        "total_analyzed": len(reviews),
+        "authentic_count": auth_count,
+        "suspicious_count": susp_count,
+        "average_score": round(total_score / len(reviews), 2)
+    }
+    
+    return {"results": results, "metrics": metrics}
