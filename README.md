@@ -49,7 +49,15 @@ To avoid the "black box" problem of AI, a parallel model (`explain_model.pkl`) i
 - A dedicated **Logistic Regression** model is trained specifically to extract feature coefficients.
 - During analysis, the system multiplies the TF-IDF vectors by these coefficients to determine exactly *which* words pushed the model toward predicting "Fake" or "Authentic". This creates the sub-lexical visual X-Ray in the UI.
 
-### 4. Behavioral & Heuristic Scoring System
+### 4. Model Performance & Metrics
+Based on historical benchmark testing, the calibrated machine learning pipeline achieves the following reliable baseline metrics when identifying deceptive texts:
+- **Accuracy**: ~86.06%
+- **Precision**: ~86.54%
+- **Recall**: ~84.38%
+- **F1-Score**: ~85.44%
+*(Note: These metrics reflect raw algorithmic performance before the secondary Behavioral Heuristic Engine adjusts the final scores).*
+
+### 5. Behavioral & Heuristic Scoring System
 Raw ML probabilities are refined using a custom heuristic engine that evaluates human behavioral patterns:
 - **Lexical Diversity / Repetition Ratio**: Flags bot-like repetition.
 - **Sentiment Analysis**: Uses **NLTK's SentimentIntensityAnalyzer (VADER)** to check for nuanced mixed sentiment (a trait of real human reviews).

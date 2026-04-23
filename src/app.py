@@ -141,7 +141,7 @@ def get_color(score, status):
 
 # --- SIDEBAR: Community Insight & History ---
 with st.sidebar:
-    st.markdown("<h2 style='color: white; font-family: Space Grotesk;'>🌐 Community Intel</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color: white; font-family: Space Grotesk;'>🌐 Previous Scans</h2>", unsafe_allow_html=True)
     st.markdown("<p style='color: #94A3B8;'>Real-time history & verification network.</p>", unsafe_allow_html=True)
     
     if st.button("🔄 Sync Network"):
@@ -178,7 +178,7 @@ with st.sidebar:
 st.title("ReviewGuard Pro")
 st.markdown("<p style='font-size: 1.2rem; color: #94A3B8; margin-top: -15px; margin-bottom: 30px;'>Advanced Forensics & NLP Astroturfing Detection</p>", unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["🔍 Quantum Scan", "📊 Multi-Batch Intel", "🌐 Live Intercept (Beta)"])
+tab1, tab2, tab3 = st.tabs(["🔍 Single Review Analysis", "📊 Bulk Analysis", "🌐 Real-time Scraping"])
 
 with tab1:
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
