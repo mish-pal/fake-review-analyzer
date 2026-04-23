@@ -4,6 +4,16 @@ import os
 import joblib
 from nltk.sentiment import SentimentIntensityAnalyzer
 from typing import Dict, Any, List
+import nltk
+
+try:
+    from nltk.corpus import words as nltk_words
+    ENGLISH_VOCAB = set(nltk_words.words())
+except LookupError:
+    nltk.download('words', quiet=True)
+    from nltk.corpus import words as nltk_words
+    ENGLISH_VOCAB = set(nltk_words.words())
+
 
 MODEL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src', 'models'))
 
@@ -65,6 +75,18 @@ def behavioral_score(review: str):
         penalty_count += 1
         reasoning.append("Low detail profile; the review lacks descriptive substance.")
         
+    gibberish_count = 0
+    for w in words:
+        if len(w) > 2 and w not in ENGLISH_VOCAB and not w.isdigit():
+            # also allow domain words
+            if w not in domain_words and w not in strong_words:
+                gibberish_count += 1
+                
+    gibberish_ratio = gibberish_count / len(words) if words else 0
+    if gibberish_ratio > 0.3:
+        score -= 50
+        reasoning.append(f"High anomaly detection ({int(gibberish_ratio*100)}% unrecognized vocabulary). Likely gibberish or automated spam.")
+        
     if penalty_count >= 2:
         score -= 20
         reasoning.insert(0, "Multiple suspicious behavioral patterns triggered a severe penalty.")
@@ -91,6 +113,11 @@ def analyze_review(review: str) -> Dict[str, Any]:
     
     base = (1 - prob) * 100
     behavior_adj, reasoning = behavioral_score(review)
+    
+    if any("unrecognized vocabulary" in r for r in reasoning):
+        base = min(base, 30)
+        prob = max(prob, 0.9)
+        
     final_score = float(max(0, min(100, base + behavior_adj)))
     
     confidence_dist = abs(prob - 0.5)
@@ -150,7 +177,7 @@ def analyze_batch(reviews: List[str]) -> Dict[str, Any]:
     if not reviews:
         return {"results": [], "metrics": {}}
         
-    if not model or not vectorizer:
+    if not model or not vectorizer or not explain_model:
         raise ValueError("ML models not loaded.")
 
     cleaned_texts = [clean_text(r) for r in reviews]
@@ -162,10 +189,16 @@ def analyze_batch(reviews: List[str]) -> Dict[str, Any]:
     susp_count = 0
     total_score = 0
     
+    all_reasons = {}
+    
     for i, review in enumerate(reviews):
         # We can run basic behavior score over each
-        behavior_adj, _ = behavioral_score(review)
+        behavior_adj, reasoning = behavioral_score(review)
         base = (1 - probs[i]) * 100
+        
+        if any("unrecognized vocabulary" in r for r in reasoning):
+            base = min(base, 30)
+            
         final_score = float(max(0, min(100, base + behavior_adj)))
         
         status = "Authentic" if final_score >= 50 else "Suspicious"
@@ -174,12 +207,40 @@ def analyze_batch(reviews: List[str]) -> Dict[str, Any]:
         
         total_score += final_score
         
+        for r in reasoning:
+            all_reasons[r] = all_reasons.get(r, 0) + 1
+            
         results.append({
             "text": review,
             "score": round(final_score, 2),
             "status": status
         })
         
+    # Get top common behavioral reasons
+    common_reasons = sorted(all_reasons.items(), key=lambda x: x[1], reverse=True)[:4]
+    formatted_reasons = [f"{k} ({v} occurrences)" for k, v in common_reasons]
+    
+    # Extract overall XAI for batch
+    # Sum the tfidf vectors across the batch
+    sum_vectors = vectors.sum(axis=0)
+    feature_names = vectorizer.get_feature_names_out()
+    coefs = explain_model.coef_[0]
+    
+    words = []
+    # nonzero elements in the summed vector
+    import numpy as np
+    sum_vectors_np = np.asarray(sum_vectors)
+    for i in np.nonzero(sum_vectors_np)[1]:
+        tfidf_val = float(sum_vectors_np[0, i])
+        contribution = coefs[i] * tfidf_val
+        words.append({
+            "word": str(feature_names[i]),
+            "contribution": float(round(contribution, 4)),
+            "tfidf_sum": float(round(tfidf_val, 4))
+        })
+    
+    top_batch_words = sorted(words, key=lambda x: abs(x["contribution"]), reverse=True)[:8]
+
     metrics = {
         "total_analyzed": len(reviews),
         "authentic_count": auth_count,
@@ -187,4 +248,9 @@ def analyze_batch(reviews: List[str]) -> Dict[str, Any]:
         "average_score": round(total_score / len(reviews), 2)
     }
     
-    return {"results": results, "metrics": metrics}
+    return {
+        "results": results, 
+        "metrics": metrics,
+        "common_reasons": formatted_reasons,
+        "top_batch_words": top_batch_words
+    }

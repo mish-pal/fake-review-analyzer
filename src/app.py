@@ -156,9 +156,6 @@ with st.sidebar:
             if not reviews:
                 st.write("No records found.")
             for r in reviews:
-                total_votes = r['upvotes'] - r['downvotes']
-                vote_color = "#00E676" if total_votes >= 0 else "#FF1744"
-                
                 status_guess = "Authentic" if r['final_score'] >= 50 else "Suspicious"
                 
                 st.markdown(f"""
@@ -167,20 +164,10 @@ with st.sidebar:
                     <div style='font-size: 0.95em; margin-bottom: 12px; font-style: italic;'>" {r['text'][:65]}..."</div>
                     <div style='display: flex; justify-content: space-between; align-items: center;'>
                         <strong style='color:{get_color(r["final_score"], status_guess)}; font-size: 1.1em;'>[{int(r['final_score'])}/100]</strong>
-                        <span style='color:{vote_color}; font-weight:800; font-family: monospace;'>VOTES: {total_votes}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                cc1, cc2 = st.columns(2)
-                with cc1:
-                    if st.button("⬆️ Verify", key=f"up_{r['id']}", use_container_width=True):
-                        requests.post(f"{API_BASE_URL}/vote", json={"review_id": r['id'], "vote": "up"})
-                        st.rerun()
-                with cc2:
-                    if st.button("⬇️ Contest", key=f"down_{r['id']}", use_container_width=True):
-                        requests.post(f"{API_BASE_URL}/vote", json={"review_id": r['id'], "vote": "down"})
-                        st.rerun()
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
         else:
             st.error("API Error.")
@@ -319,6 +306,29 @@ with tab2:
                         fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='white')
                         
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        st.markdown("---")
+                        st.markdown("#### 🧠 AI Assessment Justification")
+                        cr1, cr2 = st.columns(2)
+                        with cr1:
+                            st.markdown("##### Dominant Behavioral Flags")
+                            if data.get("common_reasons"):
+                                for reason in data["common_reasons"]:
+                                    icon = "🔴" if "penalty" in reason.lower() or "suspicious" in reason.lower() or "low detail" in reason.lower() or "bias" in reason.lower() or "unusual" in reason.lower() else "🟢"
+                                    st.markdown(f"<p style='font-size: 0.9em; margin: 2px 0;'>{icon} {reason}</p>", unsafe_allow_html=True)
+                            else:
+                                st.write("No distinct behavioral patterns found.")
+                        with cr2:
+                            st.markdown("##### Key Lexical Drivers (X-Ray)")
+                            if data.get("top_batch_words"):
+                                for tw in data["top_batch_words"]:
+                                    word = tw['word']
+                                    cont = tw['contribution']
+                                    bar_color = "#FF1744" if cont > 0 else "#00E676"
+                                    label = "Fake Signal" if cont > 0 else "Authentic Signal"
+                                    st.markdown(f"<span style='color: {bar_color}; font-family: monospace; margin-right: 10px; font-weight: bold;'>{word} ({label})</span>", unsafe_allow_html=True)
+                            else:
+                                st.write("No strong lexical drivers found.")
                     else:
                         st.error("API error during batch sequence.")
                 except Exception as e:
@@ -338,28 +348,75 @@ with tab3:
         else:
             with st.spinner("Connecting to root domain..."):
                 time.sleep(1.5)
-            with st.spinner("Bypassing captchas & parsing HTML tree..."):
-                time.sleep(1.5)
-            with st.spinner("Fetching live review strings..."):
-                time.sleep(1)
-                
-            st.success("Target successfully scraped! Found 100 recent live reviews.")
-            
-            st.markdown("<div class='glass-card' style='margin-top: 20px;'>", unsafe_allow_html=True)
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Live Items Captured", 100)
-            m2.metric("Mean URL Authenticity", "34.5/100")
-            m3.metric("Critical Astroturfing Flags", 65)
-            
-            df_mock = pd.DataFrame([{"Status": "Authentic", "Count": 35},
-                                  {"Status": "Deceptive Farm", "Count": 65}])
-            
-            fig2 = px.pie(df_mock, values='Count', names='Status', title="Live Data Authenticity",
-                         color="Status", color_discrete_map={"Authentic": "#00E676", "Deceptive Farm": "#FF1744"}, hole=0.6)
-            fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='white')
-            
-            st.plotly_chart(fig2, use_container_width=True)
-            st.markdown("<p style='color: #FF1744; text-align: center; font-weight: bold;'>⚠️ WARNING: Product exhibits highly suspicious review patterns indicative of widespread bot astroturfing.</p>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            with st.spinner("Connecting to root domain and bypassing basic protections..."):
+                try:
+                    res = requests.get(f"{API_BASE_URL}/scrape", params={"url": url_input})
+                    if res.status_code == 200:
+                        scraped_data = res.json()
+                        reviews_list = scraped_data.get("reviews", [])
+                        
+                        if not reviews_list:
+                            st.warning("Could not extract any reviews. Amazon may have blocked the request with a CAPTCHA. Try another URL.")
+                        else:
+                            st.success(f"Target successfully scraped! Found {len(reviews_list)} live reviews.")
+                            
+                            with st.spinner("Analyzing scraped data..."):
+                                analyze_res = requests.post(f"{API_BASE_URL}/analyze_batch", json={"reviews": reviews_list})
+                                
+                                if analyze_res.status_code == 200:
+                                    data = analyze_res.json()
+                                    metrics = data["metrics"]
+                                    
+                                    st.markdown("<div class='glass-card' style='margin-top: 20px;'>", unsafe_allow_html=True)
+                                    m1, m2, m3 = st.columns(3)
+                                    m1.metric("Live Items Captured", metrics['total_analyzed'])
+                                    m2.metric("Mean URL Authenticity", f"{metrics['average_score']}/100")
+                                    m3.metric("Anomalies Detected", metrics['suspicious_count'])
+                                    
+                                    df_res = pd.DataFrame([{"Status": "Authentic", "Count": metrics['authentic_count']},
+                                                          {"Status": "Suspicious (Anomaly)", "Count": metrics['suspicious_count']}])
+                                    
+                                    fig2 = px.pie(df_res, values='Count', names='Status', title="Live Data Authenticity",
+                                                 color="Status", color_discrete_map={"Authentic": "#00E676", "Suspicious (Anomaly)": "#FF1744"}, hole=0.6)
+                                    fig2.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='white')
+                                    
+                                    st.plotly_chart(fig2, use_container_width=True)
+                                    
+                                    st.markdown("---")
+                                    st.markdown("#### 🧠 AI Assessment Justification")
+                                    cr1, cr2 = st.columns(2)
+                                    with cr1:
+                                        st.markdown("##### Dominant Behavioral Flags")
+                                        if data.get("common_reasons"):
+                                            for reason in data["common_reasons"]:
+                                                icon = "🔴" if "penalty" in reason.lower() or "suspicious" in reason.lower() or "low detail" in reason.lower() or "bias" in reason.lower() or "unusual" in reason.lower() else "🟢"
+                                                st.markdown(f"<p style='font-size: 0.9em; margin: 2px 0;'>{icon} {reason}</p>", unsafe_allow_html=True)
+                                        else:
+                                            st.write("No distinct behavioral patterns found.")
+                                    with cr2:
+                                        st.markdown("##### Key Lexical Drivers (X-Ray)")
+                                        if data.get("top_batch_words"):
+                                            for tw in data["top_batch_words"]:
+                                                word = tw['word']
+                                                cont = tw['contribution']
+                                                bar_color = "#FF1744" if cont > 0 else "#00E676"
+                                                label = "Fake Signal" if cont > 0 else "Authentic Signal"
+                                                st.markdown(f"<span style='color: {bar_color}; font-family: monospace; margin-right: 10px; font-weight: bold;'>{word} ({label})</span>", unsafe_allow_html=True)
+                                        else:
+                                            st.write("No strong lexical drivers found.")
+                                            
+                                    st.markdown("<br>", unsafe_allow_html=True)
+                                    
+                                    if metrics['suspicious_count'] > metrics['authentic_count']:
+                                        st.markdown("<p style='color: #FF1744; text-align: center; font-weight: bold;'>⚠️ WARNING: Product exhibits highly suspicious review patterns indicative of widespread bot astroturfing.</p>", unsafe_allow_html=True)
+                                    else:
+                                        st.markdown("<p style='color: #00E676; text-align: center; font-weight: bold;'>✅ Product reviews appear mostly authentic.</p>", unsafe_allow_html=True)
+                                    st.markdown("</div>", unsafe_allow_html=True)
+                                else:
+                                    st.error("API error during analysis sequence.")
+                    else:
+                        st.error(f"Scraping failed: {res.json().get('detail', 'Unknown error')}")
+                except Exception as e:
+                    st.error(f"Connection failed: {e}")
             
     st.markdown("</div>", unsafe_allow_html=True)

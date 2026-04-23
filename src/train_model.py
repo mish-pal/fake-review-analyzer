@@ -1,15 +1,14 @@
 import pandas as pd
 import numpy as np
 import os
-os.environ["GRPC_ENABLE_FORK_SUPPORT"] = "False"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["OMP_NUM_THREADS"] = "1"
 import re
-import os
 import joblib
-from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import VotingClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
@@ -65,16 +64,31 @@ X_train_text, X_test_text, y_train, y_test = train_test_split(
     df['clean_text'], df['label'], test_size=0.2, random_state=42, stratify=df['label']
 )
 
-# 4. Vectorize with SentenceTransformer
-print("Loading SentenceTransformer model...")
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+# 4. Vectorize Text
+print("Vectorizing Text with Advanced Tri-gram Architecture...")
+vectorizer = TfidfVectorizer(max_features=15000, ngram_range=(1, 3), sublinear_tf=True, min_df=2)
+X_train = vectorizer.fit_transform(X_train_text)
+X_test = vectorizer.transform(X_test_text)
 
-print("Generating BERT embeddings for training data (this may take a moment)...")
-X_train = embedder.encode(X_train_text.tolist(), show_progress_bar=True)
-print("Generating BERT embeddings for testing data...")
-X_test = embedder.encode(X_test_text.tolist(), show_progress_bar=True)
+# 5. Train Ensemble Model
+print("\n--- Training Optimal Hybrid Ensemble ---")
+lr = LogisticRegression(C=2.0, max_iter=2000, random_state=42)
+nb = MultinomialNB(alpha=0.5)
+svc = SVC(kernel='linear', probability=True, random_state=42, C=1.0)
 
-# 5. Train & Evaluate Models
+voting_clf = VotingClassifier(
+    estimators=[('lr', lr), ('nb', nb), ('svc', svc)],
+    voting='soft'
+)
+
+calibrated_model = CalibratedClassifierCV(voting_clf, method='sigmoid', cv=5)
+calibrated_model.fit(X_train, y_train)
+
+# Train a dedicated explainer model on the full dataset for UI interpretation
+print("Training X-Ray Explainer...")
+explain_model = LogisticRegression(max_iter=1000, random_state=42)
+explain_model.fit(X_train, y_train)
+
 def evaluate(model, X, y):
     preds = model.predict(X)
     acc = accuracy_score(y, preds)
@@ -86,29 +100,24 @@ def evaluate(model, X, y):
     fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
     return acc, prec, rec, f1, fpr, cm
 
-print("\n--- Calibrated Logistic Regression (Transformer-based) ---")
-base_lr = LogisticRegression(max_iter=1000, random_state=42)
-calibrated_model = CalibratedClassifierCV(base_lr, method='sigmoid', cv=5)
-calibrated_model.fit(X_train, y_train)
 cal_acc, cal_prec, cal_rec, cal_f1, cal_fpr, cal_cm = evaluate(calibrated_model, X_test, y_test)
 
-print(f"Accuracy:  {cal_acc:.4f}")
-print(f"Precision: {cal_prec:.4f}")
-print(f"Recall:    {cal_rec:.4f}")
-print(f"F1-score:  {cal_f1:.4f}")
-print(f"FPR:       {cal_fpr:.4f}")
-print(f"Conf Mat:\n{cal_cm}")
+print(f"Ensemble Accuracy:  {cal_acc:.4f}")
+print(f"Ensemble Precision: {cal_prec:.4f}")
+print(f"Ensemble Recall:    {cal_rec:.4f}")
+print(f"Ensemble F1-score:  {cal_f1:.4f}")
+print(f"Ensemble FPR:       {cal_fpr:.4f}")
 
 # Ensure we save models
-print("\nSaving models...")
-joblib.dump(calibrated_model, os.path.join(MODEL_DIR, "transformer_classifier.pkl"))
+print("\nSaving robust models...")
+joblib.dump(calibrated_model, os.path.join(MODEL_DIR, "calibrated_model.pkl"))
+joblib.dump(vectorizer, os.path.join(MODEL_DIR, "tfidf_vectorizer.pkl"))
+joblib.dump(explain_model, os.path.join(MODEL_DIR, "explain_model.pkl"))
 
-# Cleanup of old TF-IDF models to avoid clutter
-old_models = ["calibrated_model.pkl", "tfidf_vectorizer.pkl", "explain_model.pkl"]
-for m in old_models:
-    try:
-        os.remove(os.path.join(MODEL_DIR, m))
-    except FileNotFoundError:
-        pass
+# Cleanup of old broken transformer models
+try:
+    os.remove(os.path.join(MODEL_DIR, "transformer_classifier.pkl"))
+except FileNotFoundError:
+    pass
 
-print(f"Models saved in {MODEL_DIR}")
+print(f"Core models saved perfectly in {MODEL_DIR}")

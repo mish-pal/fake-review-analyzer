@@ -5,7 +5,9 @@ import uvicorn
 from contextlib import asynccontextmanager
 
 from backend.ml_engine import analyze_review, analyze_batch
-from backend.database import init_db, add_review, setup_vote, get_recent_reviews
+from backend.database import init_db, add_review, get_recent_reviews
+import requests
+from bs4 import BeautifulSoup
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,16 +34,12 @@ class AnalysisResponse(BaseModel):
     top_words: List[TopWord]
     reasoning: List[str]
 
-class VoteRequest(BaseModel):
-    review_id: int
-    vote: str
 
 class ReviewItem(BaseModel):
     id: int
     text: str
     ml_score: float
-    upvotes: int
-    downvotes: int
+
     created_at: str
     final_score: float
 
@@ -53,9 +51,16 @@ class BatchItemResponse(BaseModel):
     score: float
     status: str
 
+class TopWordBatch(BaseModel):
+    word: str
+    contribution: float
+    tfidf_sum: float
+
 class BatchResponse(BaseModel):
     results: List[BatchItemResponse]
     metrics: Dict[str, Any]
+    common_reasons: List[str] = []
+    top_batch_words: List[TopWordBatch] = []
 
 @app.post("/analyze", response_model=AnalysisResponse)
 async def analyze_endpoint(req: ReviewRequest):
@@ -90,18 +95,36 @@ async def analyze_batch_endpoint(req: BatchRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
-@app.post("/vote")
-async def vote_endpoint(req: VoteRequest):
-    if req.vote not in ["up", "down"]:
-        raise HTTPException(status_code=400, detail="Vote must be 'up' or 'down'.")
-        
+@app.get("/scrape")
+async def scrape_endpoint(url: str):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept-Language': 'en-US, en;q=0.5',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+    }
     try:
-        updated_counts = setup_vote(req.review_id, req.vote)
-        return {"status": "success", "counts": updated_counts}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        res = requests.get(url, headers=headers, timeout=10)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.content, 'html.parser')
+        
+        review_elements = soup.find_all('span', {'data-hook': 'review-body'})
+        reviews = []
+        for el in review_elements:
+            text = el.get_text(separator=' ', strip=True)
+            if text and len(text) > 20:
+                reviews.append(text)
+                
+        # Fallback to paragraph extraction if standard review blocks not found
+        if not reviews:
+            paragraphs = soup.find_all('p')
+            for p in paragraphs:
+                text = p.get_text(strip=True)
+                if len(text.split()) > 15:
+                    reviews.append(text)
+                    
+        return {"url": url, "reviews": reviews[:20]}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/reviews", response_model=List[ReviewItem])
 async def get_reviews_endpoint():
