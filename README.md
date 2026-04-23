@@ -1,4 +1,4 @@
-# 🛡️ ReviewGuard Pro - Fake Review Analyzer
+# ReviewGuard Pro - Fake Review Analyzer
 
 ReviewGuard Pro is an advanced, data-driven web application designed to detect astroturfing, fake product reviews, and anomalous behavior in e-commerce datasets. It combines a highly polished modern user interface with a robust backend architecture, leveraging Natural Language Processing (NLP), Machine Learning, and Heuristic Analysis to determine the authenticity of textual data.
 
@@ -6,29 +6,29 @@ This project was built to address the growing issue of deceptive reviews by prov
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
-1. **🔍 Quantum Scan (Single Review Analysis)**: 
+1. **Single Review Analysis**: 
    - Deep forensic analysis of a single text input.
    - Provides an overall authenticity score, behavioral adjustments, and a confidence metric.
    - Features an Explainable AI (XAI) X-Ray view that highlights the specific lexical drivers (words) influencing the neural network's decision.
 
-2. **📊 Multi-Batch Intel (Bulk CSV Ingestion)**:
+2. **Bulk Review Analysis**:
    - Upload massive datasets (CSV files) to instantly map topological integrity.
    - Analyzes hundreds of reviews concurrently and returns aggregate metrics (e.g., mean authenticity score, anomalies detected).
    - Visualizes batch distribution using interactive Plotly pie charts and lists dominant behavioral flags across the dataset.
 
-3. **🕸️ Live Intercept (Real-time Scraping)**:
+3. **Real-Time Review Scrapping**:
    - Paste a live Amazon product URL.
    - The backend actively connects to the URL, bypasses basic protections, and scrapes active reviews.
    - Instantly routes the scraped data through the heuristic pipeline for immediate, real-world authenticity analysis.
 
-4. **🌐 Community Intel (History)**:
+4. **Previous Scans**:
    - A minimalist, persistent sidebar displaying a real-time history log of scanned reviews powered by an SQLite backend database.
 
 ---
 
-## 🧠 Machine Learning Models & Architecture
+## Machine Learning Models & Architecture
 
 The intelligence of ReviewGuard Pro relies on a hybrid pipeline combining machine learning and rule-based heuristics. 
 
@@ -67,7 +67,7 @@ Raw ML probabilities are refined using a custom heuristic engine that evaluates 
 
 ---
 
-## 💻 Technology Stack
+## Technology Stack
 
 **Frontend:**
 - **Streamlit**: Python web framework used for rapid UI development.
@@ -84,7 +84,7 @@ Raw ML probabilities are refined using a custom heuristic engine that evaluates 
 
 ---
 
-## 🗣️ How to speak about this project (Review / Interview Notes)
+##  How to speak about this project (Review / Interview Notes)
 
 When presenting this project, hit these key talking points:
 
