@@ -83,13 +83,3 @@ Raw ML probabilities are refined using a custom heuristic engine that evaluates 
 - **Pandas & NumPy**: For large-scale data manipulation and numerical operations.
 
 ---
-
-##  How to speak about this project (Review / Interview Notes)
-
-When presenting this project, hit these key talking points:
-
-1. **The Problem It Solves**: "I noticed that standard fake review detectors are 'black boxes'—they give you a score, but don't tell you *why*. My goal with ReviewGuard Pro was to build a system that is highly interpretable. It doesn't just catch astroturfing; it explains its reasoning."
-2. **The Hybrid Approach**: "I didn't rely purely on a machine learning model. I built a hybrid pipeline. The core is an ensemble of Logistic Regression, Naive Bayes, and SVC, which catches statistical patterns. But I layered a custom Behavioral Heuristics engine on top of it. The heuristics check for things models often miss—like gibberish ratios, extreme emotional density, and nuanced mixed sentiment."
-3. **Explainable AI (XAI)**: "One of the standout features is the 'X-Ray Scan'. I trained a parallel explainer model just to extract coefficients so the UI can visually show the user exactly which specific words drove the authenticity score."
-4. **Real-World Applicability**: "It's not just a toy model for single text inputs. I built out a bulk CSV ingestion tool for data mapping, and more importantly, a Live Intercept feature using BeautifulSoup that can dynamically scrape Amazon links and run the data through the ML pipeline in real-time."
-5. **Full-Stack Competency**: "I handled the entire lifecycle—from data cleaning and model training (Scikit-Learn), to building the asynchronous API (FastAPI), setting up the database (SQLite), and designing a highly polished, glassmorphism-inspired UI (Streamlit)."
